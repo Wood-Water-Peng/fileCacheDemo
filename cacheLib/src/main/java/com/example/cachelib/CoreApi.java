@@ -94,8 +94,8 @@ public class CoreApi {
                         LogUtil.log("下载任务完成");
                     } else if (task instanceof Runnable) {
                         //解压任务
-//                        LogUtil.log("执行解压任务...");
-//                        ((Runnable) task).run();
+                        LogUtil.log("执行解压任务...");
+                        ((Runnable) task).run();
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -158,7 +158,7 @@ public class CoreApi {
             update.setTransferredSize(processInfo.getTransferredSize());
             update.setFileId(bean.getFileId());
             dbHelper.getFileInfoDao().updateFileDowningInfo(update);
-            LogUtil.log("onTaskDowning " + processInfo.getFileName() + " transferredSize: " + processInfo.getTransferredSize());
+//            LogUtil.log("onTaskDowning " + processInfo.getFileName() + " transferredSize: " + processInfo.getTransferredSize());
         }
 
         @Override
@@ -177,7 +177,7 @@ public class CoreApi {
             String desDir = filesDir.getAbsolutePath() + "/des";
             //提交一个解压任务
             String desFileName = "_" + processInfo.getFileName();
-            UnpackTask unpackTask = new UnpackTask(processInfo.getDirPath(), desDir, processInfo.getFileName() + "." + processInfo.getFileSuffix(), desFileName);
+            UnpackTask unpackTask = new UnpackTask(processInfo.getTaskId(), processInfo.getDirPath(), desDir, processInfo.getFileName() + "." + processInfo.getFileSuffix(), desFileName);
             pendingTasks.add(unpackTask);
         }
 

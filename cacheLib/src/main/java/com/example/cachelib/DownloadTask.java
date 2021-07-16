@@ -12,9 +12,21 @@ import okio.BufferedSource;
 import okio.Okio;
 
 import java.io.*;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 
+/**
+ * http请求中Content-Length和Range的说明
+ * <p>
+ * 由于zip文件在服务端被压缩，http的响应头中没有Content-Length字段
+ * <p>
+ * 请求头的Range字段
+ * 假如你请求的资源的总大小是1024
+ * 0-     200   返回所有资源
+ * 1-1023之间   206   返回客户端请求的范围
+ * 1024-  200   返回所有资源
+ */
 public class DownloadTask implements Callable<DownloadResult> {
     String url;
     String fileName;
@@ -49,6 +61,10 @@ public class DownloadTask implements Callable<DownloadResult> {
         FileInfoBean existTask = CoreApi.getsInstance().getDbHelper().getFileInfoDao().queryEntityById(processInfo.getTaskId());
         if (existTask != null) {
             builder.header("Range", String.format("bytes=%d-", existTask.getTransferredSize()));
+            if (existTask.getStatus() == 1) {
+                LogUtil.log("任务已经下载 " + url);
+                return new DownloadResult(this.dir, fileName, fileSuffix);
+            }
         }
         Response response = client.newCall(builder.build()).execute();
         int code = response.code();
@@ -68,7 +84,11 @@ public class DownloadTask implements Callable<DownloadResult> {
                 listener.onTaskStart(processInfo);
             }
             BufferedSource source = body.source();
-            boolean data = processData(source, createFile);
+            RandomAccessFile mRaFile = new RandomAccessFile(createFile, "rw");
+            if (code == 206) {
+                mRaFile.seek(existTask.getTransferredSize());
+            }
+            processData(source, mRaFile);
             response.close();
             LogUtil.log("完成下载 " + url);
             return new DownloadResult(this.dir, fileName, fileSuffix);
@@ -79,30 +99,43 @@ public class DownloadTask implements Callable<DownloadResult> {
         }
     }
 
-    private boolean processData(BufferedSource bufferedSource, File downloadFile) throws IOException {
+    private boolean processData(BufferedSource bufferedSource, RandomAccessFile randomAccessFile) {
         BufferedInputStream mBis = new BufferedInputStream(bufferedSource.inputStream());
-        RandomAccessFile mRaFile = new RandomAccessFile(downloadFile, "rw");
-        mRaFile.seek(processInfo.getTransferredSize());
-        BufferedOutputStream fos = new BufferedOutputStream(new FileOutputStream(downloadFile));
         byte[] buf = new byte[8192];
         int size = 0;
         long total = 0;
-        while ((size = mBis.read(buf)) != -1) {
-            total += size;
-            fos.write(buf, 0, size);
+        try {
+            while ((size = mBis.read(buf)) != -1) {
+                total += size;
+                randomAccessFile.write(buf, 0, size);
+                if (listener != null) {
+                    processInfo.setTransferredSize(total);
+                    listener.onTaskDowning(processInfo);
+                }
+                Random random = new Random();
+                int i = random.nextInt(100);
+                if (i == 9) {
+                    throw new IllegalStateException();
+                }
+            }
             if (listener != null) {
+                processInfo.setEndTime(System.currentTimeMillis());
                 processInfo.setTransferredSize(total);
-                listener.onTaskDowning(processInfo);
+                processInfo.setTotalSize(total);
+                listener.onTaskFinished(processInfo);
+            }
+
+        } catch (Exception e) {
+            LogUtil.log("下载出现异常 " + url + " msg: " + e.getMessage());
+            return false;
+        } finally {
+            try {
+                mBis.close();
+                randomAccessFile.close();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
         }
-        if (listener != null) {
-            processInfo.setEndTime(System.currentTimeMillis());
-            processInfo.setTransferredSize(total);
-            processInfo.setTotalSize(total);
-            listener.onTaskFinished(processInfo);
-        }
-        mBis.close();
-        fos.close();
         return true;
     }
 }
