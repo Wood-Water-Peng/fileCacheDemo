@@ -1,0 +1,3 @@
+rootProject.name = "FileCacheDemo"
+include ':app'
+include ':cacheLib'
